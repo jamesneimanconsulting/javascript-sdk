@@ -26,8 +26,8 @@ var jsonSchemaValidator = require('../utils/json_schema_validator');
 var logger = require('../plugins/logger');
 var decisionService = require('../core/decision_service');
 var testData = require('../tests/test_data');
-var jsonSchemaValidator = require('../utils/json_schema_validator');
 var projectConfig = require('../core/project_config');
+var conditionEvaluator = require('../core/condition_evaluator');
 
 var chai = require('chai');
 var assert = chai.assert;
@@ -1694,6 +1694,36 @@ describe('lib/optimizely', function() {
         sinon.assert.notCalled(eventDispatcher.dispatchEvent);
       });
 
+      it('should send both valid and invalid attributes to condition evaluator', function() {
+        var attributes = {
+          browser_type: 'firefox',
+          boolean_key: false,
+          double_key: 3.14,
+          //Invalid Attributes
+          object_attr: {a: 'b'},
+          array_attr: ['a', 'b', 'c'] ,
+          // Attributes not exist in datafile
+          __invalid_attr__: 1.6
+        };
+
+        var optimizely = new Optimizely({
+          datafile: testData.getTestProjectConfig(),
+          errorHandler: errorHandler,
+          eventDispatcher: eventDispatcher,
+          jsonSchemaValidator: jsonSchemaValidator,
+          logger: logger.createLogger({logLevel: 1}),
+          isValidInstance: true,
+        });
+
+        sinon.stub(conditionEvaluator, 'evaluate');
+        optimizely.getVariation('testExperimentWithAudiences', 'user1234', attributes);
+        
+        sinon.assert.calledOnce(conditionEvaluator.evaluate);
+        sinon.assert.calledWith(conditionEvaluator.evaluate, sinon.match.any, attributes);
+
+        conditionEvaluator.evaluate.restore();
+      });
+
       describe('order of bucketing operations', function() {
         it('should properly follow the order of bucketing operations', function() {
           // Order of operations is preconditions > experiment is running > whitelisting > audience eval > variation bucketing
@@ -2009,6 +2039,35 @@ describe('lib/optimizely', function() {
         sinon.assert.calledOnce(decisionListener);
       });
 
+      it('should call a listener added for activate with both valid and invalid attributes', function() {
+        var userAttributes = {
+          browser_type: 'firefox',
+          boolean_key: false,
+          double_key: 3.14,
+          //Invalid Attributes
+          object_attr: {a: 'b'},
+          array_attr: ['a', 'b', 'c'] ,
+          // Attributes not exist in datafile
+          __invalid_attr__: 1.6
+        };
+
+        optlyInstance.notificationCenter.addNotificationListener(
+          enums.NOTIFICATION_TYPES.ACTIVATE,
+          decisionListener
+        );
+        optlyInstance.activate('testExperiment', 'testUser', userAttributes);
+
+        sinon.assert.calledOnce(decisionListener);
+        //sinon.assert.calledWith(decisionListener, sinon.match.any, sinon.match.any, attributes, sinon.match.any);
+        sinon.assert.calledWith(decisionListener, {
+          experiment: sinon.match.any,
+          userId: sinon.match.any,
+          attributes: userAttributes,
+          variation: sinon.match.any,
+          logEvent: sinon.match.any
+        });
+      });
+
       it('should call a listener added for track when track is called', function() {
         optlyInstance.notificationCenter.addNotificationListener(
           enums.NOTIFICATION_TYPES.TRACK,
@@ -2017,6 +2076,36 @@ describe('lib/optimizely', function() {
         optlyInstance.activate('testExperiment', 'testUser');
         optlyInstance.track('testEvent', 'testUser');
         sinon.assert.calledOnce(trackListener);
+      });
+
+      it('should call a listener added for track with both valid and invalid attributes', function() {
+        var userAttributes = {
+          browser_type: 'firefox',
+          boolean_key: false,
+          double_key: 3.14,
+          //Invalid Attributes
+          object_attr: {a: 'b'},
+          array_attr: ['a', 'b', 'c'] ,
+          // Attributes not exist in datafile
+          __invalid_attr__: 1.6
+        };
+
+        optlyInstance.notificationCenter.addNotificationListener(
+          enums.NOTIFICATION_TYPES.TRACK,
+          trackListener
+        );
+
+        optlyInstance.activate('testExperiment', 'testUser', userAttributes);
+        optlyInstance.track('testEvent', 'testUser', userAttributes);
+
+        sinon.assert.calledOnce(trackListener);
+        sinon.assert.calledWith(trackListener, {
+          eventKey: sinon.match.any,
+          userId: sinon.match.any,
+          attributes: userAttributes,
+          eventTags: sinon.match.any,
+          logEvent: sinon.match.any
+        });
       });
 
       it('should not call a removed activate listener when activate is called', function() {
